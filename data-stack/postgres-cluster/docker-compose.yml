@@ -1,0 +1,113 @@
+version: '3.8'
+services:
+  postgres-master:
+    image: postgres:15
+    container_name: postgres-master
+    hostname: postgres-master
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-myapp}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password123}
+      POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER:-replicator}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator123}
+      POSTGRES_REPLICATION_SLOT: ${POSTGRES_REPLICATION_SLOT:-replica_slot}
+    volumes:
+      - /mnt/postgres/master/data:/var/lib/postgresql/data
+      - /mnt/postgres/master/config:/etc/postgresql
+      - /mnt/postgres/master/logs:/var/log/postgresql
+      # Mount SQL template and renderer script
+      - ./config/init-master.sql:/tmp/init-master.template.sql:ro
+      - ./config/entrypoint-init-master.sh:/docker-entrypoint-initdb.d/00-entrypoint-init-master.sh:ro
+      - ./config/postgresql-master.conf:/etc/postgresql/postgresql.conf
+      - ./config/pg_hba.conf:/etc/postgresql/pg_hba.conf
+    ports:
+      - "5432:5432"
+    networks:
+      - postgres-cluster
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c hba_file=/etc/postgresql/pg_hba.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres-replica:
+    image: postgres:15
+    container_name: postgres-replica
+    hostname: postgres-replica
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password123}
+      POSTGRES_MASTER_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_MASTER_PASSWORD: ${POSTGRES_PASSWORD:-password123}
+      POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER:-replicator}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-replicator123}
+      PGUSER: ${POSTGRES_USER:-postgres}
+    volumes:
+      - /mnt/postgres/replica/data:/var/lib/postgresql/data
+      - /mnt/postgres/replica/config:/etc/postgresql
+      - /mnt/postgres/replica/logs:/var/log/postgresql
+      - ./config/init-replica.sh:/docker-entrypoint-initdb.d/01-init-replica.sh
+      - ./config/postgresql-replica.conf:/etc/postgresql/postgresql.conf
+    ports:
+      - "5433:5432"
+    networks:
+      - postgres-cluster
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # Servicio opcional para monitoreo
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter
+    env_file:
+      - .env
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password123}@postgres-master:5432/${POSTGRES_DB:-myapp}?sslmode=disable"
+    ports:
+      - "9187:9187"
+    networks:
+      - postgres-cluster
+    depends_on:
+      - postgres-master
+    restart: unless-stopped
+
+networks:
+  postgres-cluster:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres-master-data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /mnt/postgres/master/data
+      o: bind
+  
+  postgres-replica-data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /mnt/postgres/replica/data
+      o: bind

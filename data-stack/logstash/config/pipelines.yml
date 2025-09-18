@@ -1,0 +1,4 @@
+- pipeline.id: postgres_jdbc
+  path.config: "/usr/share/logstash/pipelines/postgres_jdbc.conf"
+  pipeline.workers: 1
+  pipeline.batch.size: 125
