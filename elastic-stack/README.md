@@ -110,6 +110,10 @@ sudo docker compose --env-file .env logs -f es01
 sudo docker compose --env-file .env logs -f kibana
 # Parar
 sudo docker compose --env-file .env down
+# ve estadisticas
+docker stats
+curl -s http://localhost:9200/_nodes/stats/jvm?pretty | jq '.nodes[]|{heap_used:.jvm.mem.heap_used_in_bytes, heap_max:.jvm.mem.heap_max_in_bytes}'
+
 ```
 
 ## Solución de problemas
